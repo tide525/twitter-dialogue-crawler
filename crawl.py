@@ -9,6 +9,11 @@ import tweepy
 from tqdm import tqdm
 
 
+SEARCH_TWEETS_COUNT = 100
+SEARCH_TWEETS_Q = 'い'
+
+USER_TIMELINE_COUNT = 200
+
 SOURCES = [
     'TweetDeck',
     'Twitter for Android',
@@ -35,13 +40,12 @@ def filter_status(
 
 def collect_user_ids(
     api: tweepy.API,
-    q: str
 ):
     statuses = api.search_tweets(
-        q=q,
+        q=SEARCH_TWEETS_Q,
         lang='ja',
         result_type='recent',
-        count=100
+        count=SEARCH_TWEETS_COUNT
     )
 
     user_ids = set()
@@ -64,7 +68,7 @@ def crawl_user_timeline(
         try:
             statuses = api.user_timeline(
                 user_id=user_id,
-                count=200,
+                count=USER_TIMELINE_COUNT,
                 exclude_replies=False,
                 include_rts=False
             )
@@ -76,7 +80,7 @@ def crawl_user_timeline(
             if not filter_status(status):
                 continue
 
-            id_to_status[status.id] = status
+            id_to_status[status.id] = status._json
 
             if status.in_reply_to_status_id is not None:
                 id_to_in_reply_to_status_id[status.id] = (
@@ -110,54 +114,12 @@ def build_dialogues_from_dict(
 
             # root
             if id_ not in id_to_in_reply_to_status_id.keys():
-                dialogues.append(reversed(dialogue))
+                dialogues.append(list(reversed(dialogue)))
                 break
 
             id_ = id_to_in_reply_to_status_id[id_]
 
     return dialogues
-
-
-def arrange_dialogues_for_jsonl(
-    dialogues: List[List[tweepy.models.Status]]
-) -> List[Dict[str, Any]]:
-    line_dicts = []
-    for dialogue in dialogues:
-        users = set()
-
-        dialogue_dicts = []
-        text_dict = {}
-        for status in dialogue:
-            dialogue_dict = {
-                'id': status.id,
-                'user_id': status.author.id
-            }
-            dialogue_dicts.append(dialogue_dict)
-
-            text_dict[status.id] = {
-                'text': status.text,
-                'source': status.source
-            }
-            users.add(status.author)
-
-        if len(users) != 2:
-            continue
-
-        user_dict = {}
-        for user in users:
-            user_dict[user.id] = {
-                'name': user.name,
-                'description': user.description
-            }
-
-        line_dict = {
-            'dialogue': dialogue_dicts,
-            'text': text_dict,
-            'user': user_dict,
-        }
-        line_dicts.append(line_dict)
-
-    return line_dicts
 
 
 def main():
@@ -189,7 +151,6 @@ def main():
 
     user_ids = collect_user_ids(
         api=api,
-        q='い',
     )
 
     id_to_status = {}
@@ -214,22 +175,17 @@ def main():
         id_to_status=id_to_status,
     )
 
-    line_dicts = arrange_dialogues_for_jsonl(dialogues)
-
     output_jsonl = os.path.join(
         args.output_dir,
-        '{:%Y%m%d%H%M%S%f}'.format(datetime.now()) + '.jsonl',
+        '{:%Y%m%d%H%M%S%f}'.format(datetime.now()) + '.json',
     )
     with open(output_jsonl, 'w', encoding='utf-8') as f:
-        for line_dict in line_dicts:
-            line = json.dumps(
-                line_dict,
-                ensure_ascii=False,
-                separators=(',', ':'),
-                sort_keys=True,
-            )
-
-            f.write(line + '\n')
+        json.dump(
+            dialogues,
+            f,
+            ensure_ascii=False,
+            separators=(',', ':')
+        )
 
 
 if __name__ == '__main__':
