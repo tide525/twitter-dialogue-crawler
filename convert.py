@@ -1,9 +1,14 @@
 import argparse
 import glob
 import json
+from typing import Any, Dict
+
+from tqdm import tqdm
 
 
-def convert_dialogue(dialogue):
+def convert_dialogue_into_line(
+    dialogue: Dict[str, Any]
+) -> Dict[str, Any]:
     id_dicts = []
 
     status_dict = {}
@@ -29,12 +34,17 @@ def convert_dialogue(dialogue):
             'name': user['name'],
             'description': user['description']
         }
-
-    return {
-        'dialogue': id_dicts,
-        'status': status_dict,
-        'user': user_dict
-    }
+    
+    line = json.dumps(
+        {
+            'dialogue': id_dicts,
+            'status': status_dict,
+            'user': user_dict
+        },
+        ensure_ascii=False,
+        separators=(',', ':')
+    )
+    return line
  
 
 def main():
@@ -50,21 +60,16 @@ def main():
     args = parser.parse_args()
 
     dialogues = []
-
-    for json_file in glob.glob(args.data_dir + '/*.json'):
+    for json_file in tqdm(glob.glob(args.data_dir + '/*.json')):
         with open(json_file, encoding='utf-8') as f:
-            dialogues.extend(json.load(f))
+            try:
+                dialogues.extend(json.load(f))
+            except json.JSONDecodeError as err:
+                print(err)
 
-    line_dicts = map(convert_dialogue, dialogues)
-
+    lines = set(map(convert_dialogue_into_line, dialogues))
     with open(args.output_jsonl, 'w', encoding='utf-8') as f:
-        for line_dict in line_dicts:
-            line = json.dumps(
-                line_dict,
-                ensure_ascii=False,
-                separators=(',', ':')
-            )
-
+        for line in lines:
             f.write(line + '\n')
 
 
