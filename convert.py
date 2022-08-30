@@ -1,51 +1,99 @@
 import argparse
 import glob
+import html
 import json
-from typing import Any, Dict
+import os
+import re
+from typing import Any, Dict, Set
 
 from tqdm import tqdm
 
 
-def convert_dialogue_into_line(
-    dialogue: Dict[str, Any]
-) -> Dict[str, Any]:
-    id_dicts = []
+MIN_LENGTH = 4
+REPEAT_PATTERN = re.compile(r'(.+?)\1{4}')
 
-    status_dict = {}
-    user_dict = {}
 
-    for status in dialogue:
-        id_ = status['id']
-
-        user = status['user']
-        user_id = user['id']
-
-        id_dict = {
-            'id': id_,
-            'user_id': user_id
-        }
-        id_dicts.append(id_dict)
-
-        status_dict[id_] = {
-            'text': status['text'],
-        }
-
-        user_dict[user_id] = {
-            'name': user['name'],
-            'description': user['description']
-        }
-    
-    line = json.dumps(
-        {
-            'dialogue': id_dicts,
-            'status': status_dict,
-            'user': user_dict
-        },
-        ensure_ascii=False,
-        separators=(',', ':')
+def clean_text_or_name(text_or_name: str) -> str:
+    text_or_name = html.unescape(text_or_name)
+    text_or_name = ' '.join(
+        ton for ton in text_or_name.split()
+        if not (
+            ton.startswith('#')
+            or ton.startswith('@')
+        )
     )
-    return line
- 
+    return text_or_name
+
+
+def filter_status_text(status_text: str) -> bool:
+    if len(status_text) < MIN_LENGTH:
+        return False
+    if REPEAT_PATTERN.search(status_text):
+        return False
+    return True
+
+
+def filter_line_dict(
+    line_dict: Dict[str, Any]
+) -> bool:
+    if len(line_dict['dialogue']) < 4:
+        return False
+    if len(line_dict['user']) < 2:
+        return False
+    return True
+
+
+def convert_dialogues_into_lines(
+    dialogues: Dict[str, Any]
+) -> Set[str]:
+    lines = set()
+
+    for dialogue in dialogues:
+        id_dicts = []
+
+        status_dict = {}
+        user_dict = {}
+
+        for status in dialogue:
+            status_id = status['id']
+            status_text = status['text']
+
+            status_text = clean_text_or_name(status_text)
+            if not filter_status_text(status_text):
+                break
+
+            user_id = status['user']['id']
+            user_name = status['user']['name']
+
+            user_name = clean_text_or_name(user_name)
+
+            id_dict = {
+                'id': status_id,
+                'user_id': user_id
+            }
+            id_dicts.append(id_dict)
+
+            status_dict[status_id] = status_text
+            user_dict[user_id] = user_name
+
+        else:
+            line_dict = {
+                'dialogue': id_dicts,
+                'status': status_dict,
+                'user': user_dict,
+            }
+            if not filter_line_dict(line_dict):
+                continue
+
+            line = json.dumps(
+                line_dict,
+                ensure_ascii=False,
+                separators=(',', ':')
+            )
+            lines.add(line)
+
+    return lines
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -59,15 +107,17 @@ def main():
     )
     args = parser.parse_args()
 
-    dialogues = []
-    for json_file in tqdm(glob.glob(args.data_dir + '/*.json')):
+    lines = set()
+
+    json_files = glob.glob(os.path.join(args.data_dir, '*.json'))
+    for json_file in tqdm(json_files):
         with open(json_file, encoding='utf-8') as f:
             try:
-                dialogues.extend(json.load(f))
+                dialogues = json.load(f)
+                lines |= convert_dialogues_into_lines(dialogues)
             except json.JSONDecodeError as err:
                 print(err)
 
-    lines = set(map(convert_dialogue_into_line, dialogues))
     with open(args.output_jsonl, 'w', encoding='utf-8') as f:
         for line in lines:
             f.write(line + '\n')
