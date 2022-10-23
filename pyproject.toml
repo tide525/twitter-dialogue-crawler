@@ -5,12 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "twitter_dialogue_crawler"
 version = "0.0.1"
-description = "Twitter dialogue crawler"
+description = "A Twitter dialogue crawler"
 readme = "README.md"
 requires-python = ">=3.9.4"
 license = {file = "LICENSE"}
 dependencies = [
+    "pandas",
+    "pyknp",
     "python-dotenv",
     "tqdm",
     "tweepy",
+    "zenhan",
 ]
